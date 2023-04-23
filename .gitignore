@@ -10,7 +10,7 @@ password.json
 password.json.lock
 stopwords.txt
 userdict.txt
-src/tmp/
+tmp/
 src/gpt4free/
 src/__pycache__
 src/monitor.py

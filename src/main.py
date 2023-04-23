@@ -3,7 +3,7 @@ import logging
 import logging.handlers
 import asyncio
 import random
-import telebot
+import telebot.util
 import telebot.async_telebot
 import pandas as pd
 from word_cloud import generate_word_cloud
@@ -21,8 +21,18 @@ from crawl_dyxhs import crawl_douyin, crawl_xhs
 from sqlalchemy import create_engine, String, Integer, select, insert, desc
 from sqlalchemy.orm import DeclarativeBase, mapped_column, Mapped
 import openai
-from gpt4free import phind
+from gpt4free import phind, ora
 from mino_config import MinoConfig
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+handler = logging.handlers.RotatingFileHandler(
+    filename='log/main.log', maxBytes=10000)
+handler.setLevel(logging.INFO)
+formatter = logging.Formatter('[%(asctime)s]%(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
 
 mino_conf = MinoConfig.new('config.json')
 
@@ -33,7 +43,8 @@ search_waitlist = []
 
 openai.api_key = mino_conf.openai_api_key
 
-conn = psycopg2.connect(f'dbname={mino_conf.setu_db_name} user={mino_conf.setu_db_user}')
+conn = psycopg2.connect(
+    f'dbname={mino_conf.setu_db_name} user={mino_conf.setu_db_user}')
 cur = conn.cursor()
 
 gpt_engine = create_engine(f'sqlite:///gpt_log.db')
@@ -42,14 +53,10 @@ conn_str = f'mongodb+srv://{mino_conf.chatlog_db_user}:{mino_conf.chatlog_db_pas
 client = pymongo.MongoClient(conn_str, serverSelectionTimeoutMS=5000)
 db = client['ChatLog']
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+gpt4_chatbot_ids = ['b8b12eaa-5d47-44d3-92a6-4d706f2bcacf', 'fbe53266-673c-4b70-9d2d-d247785ccd91', 'bd5781cf-727a-45e9-80fd-a3cfce1350c6', '993a0102-d397-47f6-98c3-2587f2c9ec3a', 'ae5c524e-d025-478b-ad46-8843a5745261', 'cc510743-e4ab-485e-9191-76960ecb6040', 'a5cd2481-8e24-4938-aa25-8e26d6233390', '6bca5930-2aa1-4bf4-96a7-bea4d32dcdac', '884a5f2b-47a2-47a5-9e0f-851bbe76b57c', 'd5f3c491-0e74-4ef7-bdca-b7d27c59e6b3', 'd72e83f6-ef4e-4702-844f-cf4bd432eef7',
+                    '6e80b170-11ed-4f1a-b992-fd04d7a9e78c', '8ef52d68-1b01-466f-bfbf-f25c13ff4a72', 'd0674e11-f22e-406b-98bc-c1ba8564f749', 'a051381d-6530-463f-be68-020afddf6a8f', '99c0afa1-9e32-4566-8909-f4ef9ac06226', '1be65282-9c59-4a96-99f8-d225059d9001', 'dba16bd8-5785-4248-a8e9-b5d1ecbfdd60', '1731450d-3226-42d0-b41c-4129fe009524', '8e74635d-000e-4819-ab2c-4e986b7a0f48', 'afe7ed01-c1ac-4129-9c71-2ca7f3800b30', 'e374c37a-8c44-4f0e-9e9f-1ad4609f24f5']
+ora_model = ora.CompletionModel.load(gpt4_chatbot_ids[0], 'gpt-4')
 
-handler = logging.handlers.RotatingFileHandler(filename='log/main.log', maxBytes=10000)
-handler.setLevel(logging.INFO)
-formatter = logging.Formatter('[%(asctime)s]%(message)s')
-handler.setFormatter(formatter)
-logger.addHandler(handler)
 
 def exit_handler(signum, frame):
     cur.close()
@@ -57,7 +64,9 @@ def exit_handler(signum, frame):
     mino_conf.dump()
     quit()
 
+
 signal.signal(signal.SIGTERM, exit_handler)
+
 
 def check_if_url(message):
     if (message.entities == None):
@@ -67,9 +76,11 @@ def check_if_url(message):
             return True
     return False
 
+
 def check_if_initialied(message):
     collection_names = db.list_collection_names()
     return str(message.chat.id) in collection_names
+
 
 def update_speak_time(message):
     filename = f'chatLog/{message.chat.id}/monitored.json'
@@ -78,6 +89,7 @@ def update_speak_time(message):
         if message.from_user.id in df['user_id'].values:
             df.loc[df['user_id'] == message.from_user.id, 'date'] = message.date
         df.to_json(filename, indent=1, date_unit='s')
+
 
 async def _send_setu_preview(chat_id, img_set_date):
     setus = []
@@ -237,7 +249,7 @@ async def get_word_cloud(message):
     content = ''
     yesterday_timestamp = int((datetime.now() - timedelta(1)).timestamp())
     date_filter = {
-        'date':{
+        'date': {
             '$gte': yesterday_timestamp
         }
     }
@@ -249,7 +261,7 @@ async def get_word_cloud(message):
     img_path = generate_word_cloud(str(message.chat.id), content)
     with open(img_path, 'rb') as f:
         await bot.send_photo(chat_id=message.chat.id, photo=f,
-                        reply_to_message_id=message.message_id)
+                             reply_to_message_id=message.message_id)
 
 
 @bot.message_handler(commands=['monitor'])
@@ -277,38 +289,57 @@ async def monitor(message):
         df.to_json(filename, indent=1, date_unit='s')
         await bot.reply_to(message, 'You are now being monitored.')
 
+
 class Base(DeclarativeBase):
     pass
 
+
 class ChatLog(Base):
     __tablename__ = 'chatLogs'
-    id: Mapped[int] = mapped_column(Integer(), primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(
+        Integer(), primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(String(50))
     role: Mapped[str] = mapped_column(String(10))
     content: Mapped[str] = mapped_column(String(2000))
 
     def __repr__(self):
         return "<User(user_id='%s', role='%s', content='%s')>" % (
-                                self.user_id, self.role, self.content)
+            self.user_id, self.role, self.content)
+
 
 @bot.message_handler(commands=['ask'])
 async def ask_gpt(message):
     question = telebot.util.extract_arguments(message.text)
-    
-    ############ gpt4free version ###############
+
+    ############ gpt4free-ora version #################
     try:
-        result = phind.Completion.create(model='gpt-3.5-turbo',
-                                         prompt=question,
-                                         results=phind.Search.create(prompt=question, actualSearch=True))
+        result = ora.Completion.create(ora_model, question, False)
     except Exception as e:
-        logger.error('Failed to get chat completion for %s from %s, error: %s', question, message.from_user.id, e)
+        logger.error('Failed to get chat completion for %s from %s, error: %s',
+                     question, message.from_user.id, e)
         await bot.reply_to(message, text='Error occurred, please retry')
         return
-    try:
-        await bot.reply_to(message, text=result.completion.choices[0].text, parse_mode='Markdown')
-    except:
-        await bot.reply_to(message, text=result.completion.choices[0].text)
-    
+    for content in telebot.util.smart_split(result.completion.choices[0].text):
+        try:
+            await bot.reply_to(message, text=content, parse_mode='Markdown')
+        except:
+            await bot.reply_to(message, text=content)
+    ############ gpt4free-phind version ###############
+    # try:
+    #     result = phind.Completion.create(model='gpt-4',
+    #                                      prompt=question,
+    #                                      results=phind.Search.create(prompt=question, actualSearch=False))
+    # except Exception as e:
+    #     logger.error('Failed to get chat completion for %s from %s, error: %s',
+    #                  question, message.from_user.id, e)
+    #     await bot.reply_to(message, text='Error occurred, please retry')
+    #     return
+    # for content in telebot.util.smart_split(result.completion.choices[0].text):
+    #     try:
+    #         await bot.reply_to(message, text=content, parse_mode='Markdown')
+    #     except:
+    #         await bot.reply_to(message, text=content)
+
     ############### ChatGPT version ###############
     # if not question:
     #     bot.reply_to(message, 'Do not ask empty questions.')
@@ -355,13 +386,15 @@ async def ask_gpt(message):
     # except:
     #     bot.reply_to(message, text=response_log['content'])
 
+
 @bot.message_handler(commands=['img'])
 async def gen_img(message):
     prompt = telebot.util.extract_arguments(message.text)
     if not prompt:
         await bot.reply_to(message, 'Please provide a prompt')
         return
-    logger.info('%s generating images with prompt: %s', message.from_user.id, prompt)
+    logger.info('%s generating images with prompt: %s',
+                message.from_user.id, prompt)
     try:
         response = openai.Image.create(
             prompt=prompt,
@@ -374,7 +407,8 @@ async def gen_img(message):
         await bot.reply_to(message, 'Error ocurred, please retry.')
         return
     await bot.send_photo(chat_id=message.chat.id, photo=img_url,
-                   reply_to_message_id=message.message_id)
+                         reply_to_message_id=message.message_id)
+
 
 @bot.message_handler(commands=['cancelmonitor'])
 async def cancel_monitor(message):
@@ -396,6 +430,7 @@ async def cancel_monitor(message):
     else:
         await bot.reply_to(message, 'You are not being monitored.')
 
+
 @bot.message_handler(commands=['getpassword'])
 async def get_password(message):
     if message.chat.type != 'private':
@@ -408,7 +443,8 @@ async def get_password(message):
         if str(message.from_user.id) in passwords:
             password = passwords[str(message.from_user.id)]
             bot.reply_to(message, password)
-            logger.info('%s asking for password: %s', message.from_user.username, password)
+            logger.info('%s asking for password: %s',
+                        message.from_user.username, password)
             return
         src_chars = string.ascii_letters + string.digits
         password = ''.join(random.choice(src_chars) for _ in range(24))
@@ -416,8 +452,9 @@ async def get_password(message):
         with open(password_dir, 'w') as f:
             json.dump(passwords, f)
         await bot.reply_to(message, password)
-        logger.info('%s asking for password: %s', message.from_user.username, password)
-    
+        logger.info('%s asking for password: %s',
+                    message.from_user.username, password)
+
 
 # @bot.message_handler(commands=['setu'])
 # def send_setu(message):
@@ -483,7 +520,7 @@ async def select_setu(call):
         # else:
         # text += str(i) + '. {}          <code>{}</code>\n'.format(img_set[1], img_set[0])
         text += str(i) + '. <a href="{}">{}</a>         <code>{}</code>\n'.format(
-            'https://minosuki.xyz/images/' + str(img_set[0]), img_set[1], img_set[0])
+            mino_conf.mino_api + str(img_set[0]), img_set[1], img_set[0])
         i += 1
     # img_set_indexes = cur.fetchall()
     # img_set_indexes = { str(i): {'callback_data': 'selected_setu ' + str(img_set_index[0])} for i, img_set_index in zip(range(len(img_set_indexes)), img_set_indexes) }
@@ -492,7 +529,7 @@ async def select_setu(call):
     reply_mk['返回'] = {'callback_data': 'back_to_select_date ' + date}
     reply_mk = telebot.util.quick_markup(reply_mk)
     await bot.send_message(call.message.chat.id, text,
-                     reply_markup=reply_mk, parse_mode='HTML')
+                           reply_markup=reply_mk, parse_mode='HTML')
 
 
 @bot.callback_query_handler(func=lambda call: 'back_to_select_date ' in call.data)
@@ -524,7 +561,7 @@ async def back_to_select_date(call):
         dates['下一页'] = {'callback_data': 'next ' + last_date}
     reply_mk = telebot.util.quick_markup(dates, row_width=2)
     await bot.edit_message_text('请选择日期：', chat_id=call.message.chat.id,
-                          message_id=call.message.id, reply_markup=reply_mk)
+                                message_id=call.message.id, reply_markup=reply_mk)
 
 
 @bot.callback_query_handler(func=lambda call: 'next ' in call.data)
@@ -542,7 +579,7 @@ async def next_page(call):
         dates['下一页'] = {'callback_data': 'next ' + last_date}
     reply_mk = telebot.util.quick_markup(dates, row_width=2)
     await bot.edit_message_text('请选择日期：', chat_id=call.message.chat.id,
-                          message_id=call.message.id, reply_markup=reply_mk)
+                                message_id=call.message.id, reply_markup=reply_mk)
 
 
 @bot.callback_query_handler(func=lambda call: 'prev ' in call.data)
@@ -561,7 +598,7 @@ async def prev_page(call):
     dates['下一页'] = {'callback_data': 'next ' + last_date}
     reply_mk = telebot.util.quick_markup(dates, row_width=2)
     await bot.edit_message_text('请选择日期：', chat_id=call.message.chat.id,
-                          message_id=call.message.id, reply_markup=reply_mk)
+                                message_id=call.message.id, reply_markup=reply_mk)
 
 
 @bot.callback_query_handler(func=lambda call: 'preview ' in call.data)
@@ -592,7 +629,7 @@ async def respond_to_search(message):
             # else:
             #     text = '查询结果：\n' + img_set[0]
             text = '查询结果：\n<a href="{}">{}</a>'.format(
-                'https://minosuki.xyz/images/' + str(img_set[1]), img_set[0])
+                mino_conf.mino_api + str(img_set[1]), img_set[0])
             # reply_mk = {'发送':{'callback_data':'selected_setu ' + str(img_set[1])}}
             # reply_mk = telebot.util.quick_markup(reply_mk)
             await bot.reply_to(message, text, parse_mode='HTML')
@@ -625,7 +662,7 @@ async def respond_to_search(message):
                     # else:
                     #     text += str(i) + '. {}      <code>{}</code>\n'.format(img_set[0], img_set[1])
                     text += str(i) + '. <a href="{}">{}</a>         <code>{}</code>\n'.format(
-                        'https://minosuki.xyz/images/' + str(img_set[1]), img_set[0], img_set[1])
+                        mino_conf.mino_api + str(img_set[1]), img_set[0], img_set[1])
                     i += 1
                 reply_mk = {}
                 if test is not None:
@@ -633,7 +670,7 @@ async def respond_to_search(message):
                                        str(i) + ' ' + str(img_sets[-1][1]) + ' ' + message.text}
                 reply_mk = telebot.util.quick_markup(reply_mk)
                 await bot.reply_to(message, text, reply_markup=reply_mk,
-                             parse_mode='HTML')
+                                   parse_mode='HTML')
         search_waitlist.remove(message.chat.id)
 
 
@@ -668,7 +705,7 @@ async def next_search_page(call):
             # else:
             #     text += str(i) + '. {}      <code>{}</code>\n'.format(img_set[0], img_set[1])
             text += str(i) + '. <a href="{}">{}</a>         <code>{}</code>\n'.format(
-                'https://minosuki.xyz/images/' + str(img_set[1]), img_set[0], img_set[1])
+                mino_conf.mino_api + str(img_set[1]), img_set[0], img_set[1])
             i += 1
         reply_mk = {}
         keywords = ' '.join([keyword[1:-1] for keyword in keywords])
@@ -679,7 +716,7 @@ async def next_search_page(call):
                                str(i) + ' ' + str(img_sets[-1][1]) + ' ' + keywords}
         reply_mk = telebot.util.quick_markup(reply_mk)
         await bot.edit_message_text(text, call.message.chat.id,
-                              call.message.id, reply_markup=reply_mk, parse_mode='HTML')
+                                    call.message.id, reply_markup=reply_mk, parse_mode='HTML')
 
 
 @bot.callback_query_handler(func=lambda call: 'prev_search_page ' in call.data)
@@ -714,7 +751,7 @@ async def prev_search_page(call):
             # else:
             #     text += str(i) + '. {}      <code>{}</code>\n'.format(img_set[0], img_set[1])
             text += str(i) + '. <a href="{}">{}</a>         <code>{}</code>\n'.format(
-                'https://minosuki.xyz/images/' + str(img_set[1]), img_set[0], img_set[1])
+                mino_conf.mino_api + str(img_set[1]), img_set[0], img_set[1])
             i += 1
         reply_mk = {}
         keywords = ' '.join([keyword[1:-1] for keyword in keywords])
@@ -725,7 +762,7 @@ async def prev_search_page(call):
                            str(i) + ' ' + str(img_sets[-1][1]) + ' ' + keywords}
         reply_mk = telebot.util.quick_markup(reply_mk)
         await bot.edit_message_text(text, call.message.chat.id,
-                              call.message.id, reply_markup=reply_mk, parse_mode='HTML')
+                                    call.message.id, reply_markup=reply_mk, parse_mode='HTML')
 
 
 @bot.callback_query_handler(func=lambda call: 'selected_setu ' in call.data)
@@ -737,7 +774,7 @@ async def send_setu(call):
     if title:
         title = title[0]
         await bot.send_message(call.message.chat.id, index + '. <a href="{}">{}</a>'.format(
-            'https://minosuki.xyz/images/' + index, title), parse_mode='HTML')
+            mino_conf.mino_api + index, title), parse_mode='HTML')
     else:
         await bot.send_message(call.message.chat.id, 'Image set not found')
     # if TELEGRAPH_FLAG:
@@ -848,7 +885,7 @@ async def bobo(message):
 @bot.message_handler(func=lambda message: message.text == '日程表', content_types=['text'])
 async def send_calendar(message):
     await bot.send_photo(chat_id=message.chat.id, photo=mino_conf.calendar_id,
-                   reply_to_message_id=message.message_id)
+                         reply_to_message_id=message.message_id)
 
 
 @bot.edited_message_handler(content_types=['text'])
@@ -859,7 +896,7 @@ async def edit_log(message):
     collection.update_one(
         {'id': message.message_id},
         {'$set': {
-            'content':message.text
+            'content': message.text
         }}
     )
 
@@ -869,10 +906,12 @@ async def edit_log(message):
     #     df.loc[df['message_id'] == message.message_id, 'content'] = message.text
     #     df.to_json(filename, indent = 1, date_unit = 's')
 
+
 def check_douyin_url(message):
     return 'v.douyin.com' in message.text
 
-def parse_entity(text:str, offset:int, length:int)->str:
+
+def parse_entity(text: str, offset: int, length: int) -> str:
     count = 0
     _offset = 0
     _length = 0
@@ -890,6 +929,7 @@ def parse_entity(text:str, offset:int, length:int)->str:
             _length = i + 1
         i += 1
     return text[_offset:_length].decode()
+
 
 @bot.message_handler(func=check_douyin_url, content_types=['text'])
 async def analyze_douyin_url(message):
@@ -916,14 +956,18 @@ async def analyze_douyin_url(message):
                         else:
                             break
                     i += 10
-                    logger.info('sending media group to %s: %s', message.chat.id, arr)
-                    medias = [ telebot.types.InputMediaPhoto(media) for media in arr ]
-                    await bot.send_media_group(chat_id=message.chat.id, 
-                        media=medias, reply_to_message_id=message.message_id)
-                
+                    logger.info('sending media group to %s: %s',
+                                message.chat.id, arr)
+                    medias = [telebot.types.InputMediaPhoto(
+                        media) for media in arr]
+                    await bot.send_media_group(chat_id=message.chat.id,
+                                               media=medias, reply_to_message_id=message.message_id)
+
 # @bot.message_handler(func=check_if_url, content_types=['text'])
 # def deal_with_url(message):
 #     pass
+
+
 @bot.message_handler(func=lambda x: "xhslink.com" in x.text, content_types=['text'])
 async def analyze_xhs_url(message):
     for e in message.entities:
@@ -946,18 +990,24 @@ async def analyze_xhs_url(message):
                         else:
                             break
                     i += 10
-                    logger.info('sending media group to %s: %s', message.chat.id, arr)
-                    medias = [ telebot.types.InputMediaPhoto(media) for media in arr ]
-                    await bot.send_media_group(chat_id=message.chat.id, 
-                        media=medias, reply_to_message_id=message.message_id)
+                    logger.info('sending media group to %s: %s',
+                                message.chat.id, arr)
+                    medias = [telebot.types.InputMediaPhoto(
+                        media) for media in arr]
+                    await bot.send_media_group(chat_id=message.chat.id,
+                                               media=medias, reply_to_message_id=message.message_id)
+
 
 def has_url(message):
-    pattern = re.compile(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+')
+    pattern = re.compile(
+        r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+')
     return pattern.search(message.text) is not None
+
 
 @bot.message_handler(func=has_url, content_types=['text'])
 async def filter_url(message):
     pass
+
 
 @bot.message_handler(content_types=['text'])
 async def write_to_log(message):

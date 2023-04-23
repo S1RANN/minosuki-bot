@@ -24,7 +24,7 @@ async def sendwc():
     }
     async def send(collection_name):
         if db[collection_name].count_documents(date_filter) == 0:
-            continue
+            return
         content = ''
         for doc in db[collection_name].find(date_filter):
             content += doc['content']

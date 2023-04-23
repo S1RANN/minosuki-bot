@@ -2,9 +2,10 @@ import json
 from dataclasses import dataclass
 
 @dataclass
-class MinoConfig(dict):
+class MinoConfig:
     telegram_api_key: str
     openai_api_key: str
+    mino_api: str
     setu_db_name: str
     setu_db_user: str
     chatlog_db_user: str
