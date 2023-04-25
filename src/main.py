@@ -23,6 +23,7 @@ from sqlalchemy.orm import DeclarativeBase, mapped_column, Mapped
 import openai
 from gpt4free import phind, ora
 from mino_config import MinoConfig
+import sys
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -62,7 +63,7 @@ def exit_handler(signum, frame):
     cur.close()
     conn.close()
     mino_conf.dump()
-    quit()
+    sys.exit(0)
 
 
 signal.signal(signal.SIGTERM, exit_handler)
@@ -839,16 +840,16 @@ async def send_setu(call):
 
 @bot.message_handler(commands=['setcalendar'])
 async def set_calendar_repond(message):
-    mino_conf.awaiting_sending_calendar = 0
+    mino_conf.awaiting_sending_calendar = True
     await bot.reply_to(message, 'Please send the new calendar')
 
 
 @bot.message_handler(content_types=['photo'])
 async def repond_to_photo(message):
-    if (mino_conf.awaiting_sending_calendar == 0):
-        set_calendar(message.photo[3].file_id)
+    if mino_conf.awaiting_sending_calendar:
+        mino_conf.calendar_id = message.photo[3].file_id
         await bot.reply_to(message, 'Calendar set successfully!')
-        mino_conf.awaiting_sending_calendar = -1
+        mino_conf.awaiting_sending_calendar = False
 
 
 @bot.message_handler(func=lambda message: message.text == '米诺米诺米诺', content_types=['text'])
