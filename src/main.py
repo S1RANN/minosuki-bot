@@ -435,7 +435,7 @@ async def cancel_monitor(message):
 @bot.message_handler(commands=['getpassword'])
 async def get_password(message):
     if message.chat.type != 'private':
-        bot.reply_to(message, '请私聊')
+        await bot.reply_to(message, '请私聊')
         return
     password_dir = 'password.json'
     with FileLock(password_dir + '.lock'):
@@ -443,7 +443,7 @@ async def get_password(message):
             passwords = json.load(f)
         if str(message.from_user.id) in passwords:
             password = passwords[str(message.from_user.id)]
-            bot.reply_to(message, password)
+            await bot.reply_to(message, password)
             logger.info('%s asking for password: %s',
                         message.from_user.username, password)
             return
@@ -946,7 +946,6 @@ async def analyze_douyin_url(message):
                 with open(result, 'rb') as f:
                     await bot.send_video(message.chat.id, f, reply_to_message_id=message.message_id)
                     logger.info('sending douyin video: %s', result)
-                os.remove(result)
             elif isinstance(result, list):
                 i = 0
                 while i < len(result):

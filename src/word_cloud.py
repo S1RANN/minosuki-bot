@@ -30,7 +30,7 @@ def generate_word_cloud(chat_id:str, text:str):
      font_path = font_path, min_font_size=10, margin = 10,
       background_color = 'white', max_font_size=250,
        relative_scaling=0.7).generate_from_frequencies(freq)
-    img_path = f'img/{chat_id}.png'
+    img_path = f'/tmp/wc_{chat_id}.png'
     wc.to_file(img_path)
     return img_path
 

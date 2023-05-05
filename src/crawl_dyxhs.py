@@ -61,7 +61,7 @@ end'''
         video_url = 'https:' + playApi
         response = requests.get(video_url, stream = True)
         print(f'douyin video_url: {video_url}')
-        video_name = 'tmp/' + ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(5)) + '.mp4'
+        video_name = '/tmp/' + ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(12)) + '.mp4'
         with open(video_name, 'wb') as f:
             response.raw.decode_content = True
             shutil.copyfileobj(response.raw, f)
@@ -99,7 +99,7 @@ def crawl_xhs(url:str) -> str | None | list[str]:
                 video_url = video_url.replace('"', '').replace('masterUrl:', '')
                 response = requests.get(video_url, stream = True)
                 print(f'xhs video_url: {video_url}')
-                video_name = 'tmp/' + ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(5)) + '.mp4'
+                video_name = '/tmp/' + ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(5)) + '.mp4'
                 with open(video_name, 'wb') as f:
                     response.raw.decode_content = True
                     shutil.copyfileobj(response.raw, f)
