@@ -18,6 +18,8 @@ from datetime import datetime
 #     wc = WordCloud(mask = mask, height = 1200, width = 1200, font_path = font_path, min_font_size=10, margin = 10, background_color = 'white', max_font_size=200).generate_from_frequencies(content)
 #     wc.to_file(dir + '/wc.png')
 
+tmp_dir = '/tmp/mino/'
+
 def generate_word_cloud(chat_id:str, text:str):
     jieba.enable_parallel(4)
     jieba.analyse.set_stop_words('stopwords.txt')
@@ -30,7 +32,7 @@ def generate_word_cloud(chat_id:str, text:str):
      font_path = font_path, min_font_size=10, margin = 10,
       background_color = 'white', max_font_size=250,
        relative_scaling=0.7).generate_from_frequencies(freq)
-    img_path = f'/tmp/wc_{chat_id}.png'
+    img_path = f'{tmp_dir}wc_{chat_id}.png'
     wc.to_file(img_path)
     return img_path
 
