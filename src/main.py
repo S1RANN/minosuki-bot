@@ -20,7 +20,7 @@ import string
 from crawl_dyxhs import crawl_douyin, crawl_xhs
 from sqlalchemy import create_engine, String, Integer, select, insert, desc
 from sqlalchemy.orm import DeclarativeBase, mapped_column, Mapped
-import openai
+# import openai
 from gpt4free import phind, ora
 from mino_config import MinoConfig
 import sys
@@ -43,7 +43,7 @@ bot = async_telebot.AsyncTeleBot(mino_conf.telegram_api_key)
 TRAILING_PARAM = r''
 search_waitlist = []
 
-openai.api_key = mino_conf.openai_api_key
+# openai.api_key = mino_conf.openai_api_key
 
 conn = psycopg2.connect(
     f'dbname={mino_conf.setu_db_name} user={mino_conf.setu_db_user}')
@@ -312,34 +312,33 @@ class ChatLog(Base):
 async def ask_gpt(message):
     question = telebot.util.extract_arguments(message.text)
 
-    ############ gpt4free-ora version #################
+    logger.info('%s asking question: %s', message.from_user.id, question)
+    
+    ############# API endpoint version ############
+
+    # chatgpt_api_endpoint = 'https://free.churchless.tech/v1/chat/completions'
+
+    session = await async_telebot.asyncio_helper.session_manager.get_session()
+    json_body = {'model': 'gpt-3.5-turbo', 'messages': [{ 'role': 'user', 'content': question }] }
+
     try:
-        result = ora.Completion.create(ora_model, question, False)
-    except Exception as e:
-        logger.error('Failed to get chat completion for %s from %s, error: %s',
-                     question, message.from_user.id, e)
-        await bot.reply_to(message, text='Error occurred, please retry')
+        async with session.post(mino_conf.chatgpt_api_endpoint, json=json_body) as response:
+            if response.status == 200:
+                result = await response.json()
+            else:
+                logging.info('Failed to receiver answer: %s', response.status)
+                await bot.reply_to(message, text='Error ocurred, please retry.')
+                return
+    except aiohttp.ClientConnectorError as e:
+        logging.info('Failed to receive answer: %s', e)
+        await bot.reply_to(message, text='Error ocurred, please retry.')
         return
-    for content in telebot.util.smart_split(result.completion.choices[0].text):
-        try:
-            await bot.reply_to(message, text=content, parse_mode='Markdown')
-        except:
-            await bot.reply_to(message, text=content)
-    ############ gpt4free-phind version ###############
-    # try:
-    #     result = phind.Completion.create(model='gpt-4',
-    #                                      prompt=question,
-    #                                      results=phind.Search.create(prompt=question, actualSearch=False))
-    # except Exception as e:
-    #     logger.error('Failed to get chat completion for %s from %s, error: %s',
-    #                  question, message.from_user.id, e)
-    #     await bot.reply_to(message, text='Error occurred, please retry')
-    #     return
-    # for content in telebot.util.smart_split(result.completion.choices[0].text):
-    #     try:
-    #         await bot.reply_to(message, text=content, parse_mode='Markdown')
-    #     except:
-    #         await bot.reply_to(message, text=content)
+    result = result['choices'][0]['message']['content']
+    logger.info('response to question: %s', result)
+    try:
+        await bot.reply_to(message, text=result, parse_mode='Markdown')
+    except:
+        await bot.reply_to(message, text=result)
 
     ############### ChatGPT version ###############
     # if not question:

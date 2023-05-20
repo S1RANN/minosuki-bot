@@ -12,6 +12,7 @@ class MinoConfig:
     chatlog_db_password: str
     calendar_id: str
     awaiting_sending_calendar: int
+    chatgpt_api_endpoint: str
     
     @staticmethod
     def new(config_path: str) -> 'MinoConfig':

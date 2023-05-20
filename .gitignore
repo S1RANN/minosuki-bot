@@ -6,6 +6,7 @@ test.py
 gpt_log.db
 cookies.json
 config.json
+config.json.backup
 password.json
 password.json.lock
 stopwords.txt
