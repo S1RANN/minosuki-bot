@@ -27,7 +27,7 @@ import sys
 import aiohttp
 
 logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 handler = logging.handlers.RotatingFileHandler(
     filename='log/main.log', maxBytes=10000)
@@ -313,28 +313,68 @@ async def ask_gpt(message):
     question = telebot.util.extract_arguments(message.text)
 
     logger.info('%s asking question: %s', message.from_user.id, question)
-    
+
     ############# API endpoint version ############
 
     # chatgpt_api_endpoint = 'https://free.churchless.tech/v1/chat/completions'
 
+    if not question:
+        bot.reply_to(message, 'Do not ask empty questions.')
+        return
+    
+    user_question = {}
+    with gpt_engine.begin() as conn:
+        log_table = ChatLog.__table__
+        stmt = select(log_table.c.role, log_table.c.content).where(log_table.c.user_id == message.from_user.id).order_by(log_table.c.id.desc())
+        logs = conn.execute(stmt).fetchall()
+    if logs != []:
+        user_question['role'] = 'user'
+        user_question['content'] = question
+        messages = [user_question]
+        length = len(question)
+        for log in logs:
+            if (length + len(log[1])) < 2000:
+                messages.append({'role':log[0], 'content':log[1]})
+                length += len(log[1])
+            else:
+                break
+        messages.reverse()
+    else:
+        user_question['role'] = 'system'
+        user_question['content'] = question
+        messages = [user_question]
+    
     session = await async_telebot.asyncio_helper.session_manager.get_session()
-    json_body = {'model': 'gpt-3.5-turbo', 'messages': [{ 'role': 'user', 'content': question }] }
+    json_body = {'model': 'gpt-3.5-turbo', 'messages': messages }
+    
+    logger.debug('ChatGPT request json body: %s', json_body)
 
     try:
         async with session.post(mino_conf.chatgpt_api_endpoint, json=json_body) as response:
             if response.status == 200:
                 result = await response.json()
             else:
-                logging.info('Failed to receiver answer: %s', response.status)
+                logger.info('Failed to receiver answer: %s', response.status)
                 await bot.reply_to(message, text='Error ocurred, please retry.')
                 return
     except aiohttp.ClientConnectorError as e:
-        logging.info('Failed to receive answer: %s', e)
+        logger.info('Failed to receive answer: %s', e)
         await bot.reply_to(message, text='Error ocurred, please retry.')
         return
-    result = result['choices'][0]['message']['content']
+
+    response_log = result['choices'][0]['message']
+    result = response_log['content']
+
     logger.info('response to question: %s', result)
+
+    response_log['user_id'] = message.from_user.id
+    user_question['user_id'] = message.from_user.id
+
+    with gpt_engine.begin() as conn:
+        log_table = ChatLog.__table__
+        conn.execute(insert(log_table), user_question)
+        conn.execute(insert(log_table), response_log)
+        conn.commit()
     try:
         await bot.reply_to(message, text=result, parse_mode='Markdown')
     except:
