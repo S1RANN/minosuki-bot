@@ -13,8 +13,6 @@ import json
 import psycopg2
 import re
 from filelock import FileLock
-# from telegraph import Telegraph
-import requests
 import pymongo
 import string
 from crawl_dyxhs import crawl_douyin, crawl_xhs
@@ -70,114 +68,9 @@ def check_if_url(message):
             return True
     return False
 
-
 def check_if_initialied(message):
     collection_names = db.list_collection_names()
     return str(message.chat.id) in collection_names
-
-
-def update_speak_time(message):
-    filename = f'chatLog/{message.chat.id}/monitored.json'
-    if os.path.exists(filename):
-        df = pd.read_json(filename)
-        if message.from_user.id in df['user_id'].values:
-            df.loc[df['user_id'] == message.from_user.id, 'date'] = message.date
-        df.to_json(filename, indent=1, date_unit='s')
-
-
-async def _send_setu_preview(chat_id, img_set_date):
-    setus = []
-    cur.execute(
-        'SELECT DISTINCT img_set_index FROM img WHERE img_set_date=%s', (img_set_date,))
-    img_set_indexes = cur.fetchall()
-    i = 0
-    for img_set_index in img_set_indexes:
-        cur.execute(
-            'SELECT img_url FROM img WHERE img_set_index=%s ORDER BY img_index', (img_set_index[0],))
-        imgs = cur.fetchall()
-        # imgs = prepend_domain(imgs)
-        imgs = [img[0] for img in imgs]
-        length = len(imgs)
-        tup = (0, int(length/2), length - 1)
-        for t in tup:
-            setus.append((imgs[t], str(i)))
-            if len(setus) == 10:
-                medias = [telebot.types.InputMediaPhoto(
-                    media[0] + TRAILING_PARAM, media[1]) for media in setus]
-                try:
-                    logger.info('sending preview to %s %s', chat_id, setus)
-                    await bot.send_media_group(chat_id=chat_id, media=medias)
-                except telebot.apihelper.ApiTelegramException as e:
-                    logger.error('%s', e.description)
-                    if e.error_code == 429:
-                        from time import sleep
-                        sleep(e.result_json['parameters']['retry_after'])
-                setus = []
-                # while True:
-                #     try:
-                #         if index_to_change is not None:
-                #             from random import randint
-                #             r = randint(0, 100)
-                #             medias[index_to_change] = telebot.types.InputMediaPhoto(setus[index_to_change][0] + f'?{r}', setus[index_to_change][1])
-                #             index_to_change = None
-                #         print('sending preview to', chat_id, setus)
-                #         bot.send_media_group(chat_id = chat_id, media = medias)
-                #         setus = []
-                #     except telebot.apihelper.ApiTelegramException as e:
-                #         print(e.description)
-                #         if e.error_code == 429:
-                #             from time import sleep
-                #             sleep(e.result_json['parameters']['retry_after'])
-                #         elif e.error_code == 400:
-                #             index_to_change = int(re.search('#[0-9]+', e.description).group()[1:]) - 1
-                #         else:
-                #             break
-                #     else:
-                #         break
-                # from random import randint
-                # setus[-1] = telebot.types.InputMediaPhoto(imgs[t] + '?random=' + randint(0, 100))
-        i += 1
-    if setus:
-        medias = [telebot.types.InputMediaPhoto(
-            media[0] + TRAILING_PARAM, media[1]) for media in setus]
-        try:
-            logger.info('sending preview to %s %s', chat_id, setus)
-            await bot.send_media_group(chat_id=chat_id, media=medias)
-        except telebot.apihelper.ApiTelegramException as e:
-            logger.error('%s', e.description)
-            if e.error_code == 429:
-                from time import sleep
-                sleep(e.result_json['parameters']['retry_after'])
-        # index_to_change = None
-        # while True:
-        #     try:
-        #         if index_to_change is not None:
-        #             from random import randint
-        #             r = randint(0, 100)
-        #             medias[index_to_change] = telebot.types.InputMediaPhoto(setus[index_to_change][0] + f'?{r}', setus[index_to_change][1])
-        #             index_to_change = None
-        #         print('sending preview to', chat_id, setus)
-        #         bot.send_media_group(chat_id = chat_id, media = medias)
-        #     except telebot.apihelper.ApiTelegramException as e:
-        #         print(e.description)
-        #         if e.error_code == 429:
-        #             from time import sleep
-        #             sleep(e.result_json['parameters']['retry_after'])
-        #         elif e.error_code == 400:
-        #             index_to_change = int(re.search('#[0-9]+', e.description).group()[1:]) - 1
-        #         else:
-        #             break
-        #     else:
-        #         break
-
-
-def is_setu_date(message):
-    if re.search('[0-9]{4}-[0-9]{2}-[0-9]{2}', message.text) is None:
-        return False
-    if re.search('[0-9]{4}-[0-9]{2}-[0-9]{2}', message.text).group() == message.text:
-        return True
-    return False
-
 
 @bot.message_handler(commands=['start'])
 async def start(message):
@@ -202,38 +95,6 @@ async def start(message):
     else:
         await bot.reply_to(message, 'Already initialized!')
 
-
-@bot.message_handler(commands=['subscribesetu'])
-async def subscribe_setu(message):
-    if message.chat.type != 'supergroup':
-        await bot.reply_to(
-            message, 'Sorry, but this bot is only available for supergroup.')
-        return
-    df = pd.read_json('subscribe_setu.json')
-    if message.chat.id not in df.values:
-        df.loc[len(df.index)] = [message.chat.id, message.chat.title,
-                                 datetime.now().strftime('%Y-%m-%d')]
-        df.to_json('subscribe_setu.json')
-        await bot.reply_to(message, 'Subscribed successfully.')
-    else:
-        await bot.reply_to(message, 'Already subscribed.')
-
-
-@bot.message_handler(commands=['unsubcribesetu'])
-async def unsubscribe_setu(message):
-    if message.chat.type != 'supergroup':
-        await bot.reply_to(
-            message, 'Sorry, but this bot is only available for supergroup.')
-        return
-    df = pd.read_json('subscribe_setu.json')
-    if message.chat.id in df.values:
-        df.drop(df[df['chat_id'] == message.chat.id].index)
-        df.to_json('subscribe_setu.json')
-        await bot.reply_to(message, 'Unsubscribed successfully.')
-    else:
-        await bot.reply_to(message, 'Not subscribed yet.')
-
-
 @bot.message_handler(commands=['getwordcloud'])
 async def get_word_cloud(message):
     if not check_if_initialied(message):
@@ -256,33 +117,6 @@ async def get_word_cloud(message):
     with open(img_path, 'rb') as f:
         await bot.send_photo(chat_id=message.chat.id, photo=f,
                              reply_to_message_id=message.message_id)
-
-
-@bot.message_handler(commands=['monitor'])
-async def monitor(message):
-    if message.chat.type != 'supergroup':
-        await bot.reply_to(
-            message, 'Sorry, but you can only use monitor in a supergroup.')
-        return
-    if not check_if_initialied(message):
-        await bot.reply_to(message, 'Sorry, but you need to initialized first.')
-        return
-    filename = f'chatLog/{message.chat.id}/monitored.json'
-    if os.path.exists(filename):
-        df = pd.read_json(filename)
-        if message.from_user.id not in df['user_id'].values:
-            df.loc[len(df.index)] = [message.from_user.id, message.date, 0]
-            df.to_json(filename, indent=1, date_unit='s')
-            await bot.reply_to(message, 'You are now being monitored.')
-        else:
-            await bot.reply_to(message, 'You are already being monitored.')
-    else:
-        df = {'user_id': [message.from_user.id],
-              'date': [message.date], 'count': 0}
-        df = pd.DataFrame(df)
-        df.to_json(filename, indent=1, date_unit='s')
-        await bot.reply_to(message, 'You are now being monitored.')
-
 
 class Base(DeclarativeBase):
     pass
@@ -309,29 +143,19 @@ async def ask_gpt(message, model):
         await bot.reply_to(message, 'Do not ask empty questions.')
         return
     
+    user_question = {}
     messages = []
     
     if model == 'gemini':
-        with gpt_engine.begin() as conn:
-            log_table = ChatLog.__table__
-            stmt = select(log_table.c.role, log_table.c.content).where(log_table.c.user_id == message.from_user.id).order_by(log_table.c.id.desc())
-            logs = conn.execute(stmt).fetchall()
-            messages = [{'role':'USER', 'parts':[{'text':question}]}]
-            length = len(question)
-            for log in logs:
-                if (length + len(log[1])) < 2000:
-                    messages.append({'role':'USER', 'parts':[{'text':log[1]}]})
-                    length += len(log[1])
-                else:
-                    break
-            messages.reverse()
+        messages = [{'role':'USER', 'parts':[{'text':question}]}]
     else:
         with gpt_engine.begin() as conn:
             log_table = ChatLog.__table__
             stmt = select(log_table.c.role, log_table.c.content).where(log_table.c.user_id == message.from_user.id).order_by(log_table.c.id.desc())
             logs = conn.execute(stmt).fetchall()
             if logs != []:
-                messages = [{'role':'user', 'content':question}]
+                user_question = {'role':'user', 'content':question}
+                messages = [user_question]
                 length = len(question)
                 for log in logs:
                     if (length + len(log[1])) < 2000:
@@ -341,7 +165,8 @@ async def ask_gpt(message, model):
                         break
                 messages.reverse()
             else:
-                messages = [{'role':'system', 'content':question}]    
+                user_question = {'role':'system', 'content':question}
+                messages = [user_question]    
     
     session = await async_telebot.asyncio_helper.session_manager.get_session()
     
@@ -383,11 +208,12 @@ async def ask_gpt(message, model):
     response_log['user_id'] = message.from_user.id
     user_question['user_id'] = message.from_user.id
 
-    with gpt_engine.begin() as conn:
-        log_table = ChatLog.__table__
-        conn.execute(insert(log_table), user_question)
-        conn.execute(insert(log_table), response_log)
-        conn.commit()
+    if model != 'gemini':
+        with gpt_engine.begin() as conn:
+            log_table = ChatLog.__table__
+            conn.execute(insert(log_table), user_question)
+            conn.execute(insert(log_table), response_log)
+            conn.commit()
     try:
         await bot.reply_to(message, text=result, parse_mode='Markdown')
     except:
@@ -414,6 +240,7 @@ async def gen_img(message):
     logger.info('%s generating images with prompt: %s',
                 message.from_user.id, prompt)
     try:
+        import openai
         response = openai.Image.create(
             prompt=prompt,
             n=1,
@@ -426,28 +253,6 @@ async def gen_img(message):
         return
     await bot.send_photo(chat_id=message.chat.id, photo=img_url,
                          reply_to_message_id=message.message_id)
-
-
-@bot.message_handler(commands=['cancelmonitor'])
-async def cancel_monitor(message):
-    if message.chat.type != 'supergroup':
-        await bot.reply_to(message, 'You are not being monitored.')
-        return
-    if not check_if_initialied(message):
-        await bot.reply_to(message, 'You are not being monitored.')
-        return
-    filename = f'chatLog/{message.chat.id}/monitored.json'
-    if os.path.exists(filename):
-        df = pd.read_json(filename)
-        if message.from_user.id not in df['user_id'].values:
-            await bot.reply_to(message, 'You are not being monitored.')
-        else:
-            df = df.drop(df[df['user_id'] == message.from_user.id].index)
-            df.to_json(filename, indent=1, date_unit='s')
-            await bot.reply_to(message, 'Successfully canceled.')
-    else:
-        await bot.reply_to(message, 'You are not being monitored.')
-
 
 @bot.message_handler(commands=['getpassword'])
 async def get_password(message):
@@ -473,439 +278,6 @@ async def get_password(message):
         logger.info('%s asking for password: %s',
                     message.from_user.username, password)
 
-
-# @bot.message_handler(commands=['setu'])
-# def send_setu(message):
-#     with open(directory + 'last_setu.txt', 'r') as f:
-#         last_setu = f.read()
-#     for dir in os.scandir(setu_dir):
-#         if os.path.basename(dir) > last_setu:
-#             for imgjson in os.scandir(dir):
-#                 df = pd.read_json(imgjson)
-#                 i = 0
-#                 while i < len(df.index):
-#                     arr = []
-#                     for j in range(10):
-#                         if i + j < len(df.index):
-#                             arr.append(telebot.types.InputMediaPhoto(df.loc[i + j]['media']))
-#                         else:
-#                             break
-#                     i += 10
-#                     bot.send_media_group(message.chat.id, arr)
-#                     sleep(5)
-
-
-@bot.message_handler(commands=['setu'])
-async def select_setu_date(message):
-    cur.execute(
-        'SELECT DISTINCT img_set_date FROM img ORDER BY img_set_date DESC')
-    dates = cur.fetchmany(size=10)
-    last_date = dates[len(dates) - 1][0].strftime('%Y-%m-%d')
-    dates = {date[0].strftime('%Y-%m-%d'): {'callback_data': 'selected_date ' +
-                                            date[0].strftime('%Y-%m-%d')} for date in dates}
-    dates['下一页'] = {'callback_data': 'next ' + last_date}
-    reply_mk = telebot.util.quick_markup(dates, row_width=2)
-    await bot.reply_to(message, '请选择日期：', reply_markup=reply_mk)
-
-
-@bot.message_handler(func=is_setu_date, content_types=['text'])
-async def respond_to_date(message):
-    date = message.text
-    cur.execute(
-        'SELECT DISTINCT img_set_index FROM img WHERE img_set_date=%s', (date,))
-    img_set_indexes = cur.fetchall()
-    img_set_indexes = {str(i): {'callback_data': 'selected_setu ' + str(
-        img_set_index[0])} for i, img_set_index in zip(range(len(img_set_indexes)), img_set_indexes)}
-    img_set_indexes['预览'] = {'callback_data': 'preview ' + date}
-    img_set_indexes['返回'] = {'callback_data': 'back_to_select_date ' + date}
-    reply_mk = telebot.util.quick_markup(img_set_indexes, row_width=4)
-    await bot.send_message(message.chat.id, date + ' 请选择色图：', reply_markup=reply_mk)
-
-
-@bot.callback_query_handler(func=lambda call: 'selected_date ' in call.data)
-async def select_setu(call):
-    date = call.data.replace('selected_date ', '')
-    cur.execute(
-        'SELECT DISTINCT img_set_index, img_set_name FROM img WHERE img_set_date=%s', (date,))
-    img_sets = cur.fetchall()
-    i = 0
-    text = date + ':\n'
-    for img_set in img_sets:
-        # cur.execute('SELECT img_set_telegraph FROM img_set WHERE img_set_index=%s', (img_set[0],))
-        # img_set_telegraph = cur.fetchone()
-        # if img_set_telegraph is not None:
-        # text += str(i) + '. <a href="{}">{}</a>         <code>{}</code>\n'.format('https://telegra.ph/' + img_set_telegraph[0], img_set[1], img_set[0])
-        # else:
-        # text += str(i) + '. {}          <code>{}</code>\n'.format(img_set[1], img_set[0])
-        text += str(i) + '. <a href="{}">{}</a>         <code>{}</code>\n'.format(
-            mino_conf.mino_api + str(img_set[0]), img_set[1], img_set[0])
-        i += 1
-    # img_set_indexes = cur.fetchall()
-    # img_set_indexes = { str(i): {'callback_data': 'selected_setu ' + str(img_set_index[0])} for i, img_set_index in zip(range(len(img_set_indexes)), img_set_indexes) }
-    # img_set_indexes['预览'] = {'callback_data': 'preview ' + date}
-    reply_mk = {}
-    reply_mk['返回'] = {'callback_data': 'back_to_select_date ' + date}
-    reply_mk = telebot.util.quick_markup(reply_mk)
-    await bot.send_message(call.message.chat.id, text,
-                           reply_markup=reply_mk, parse_mode='HTML')
-
-
-@bot.callback_query_handler(func=lambda call: 'back_to_select_date ' in call.data)
-async def back_to_select_date(call):
-    date = call.data.replace('back_to_select_date ', '')
-    flag1 = flag2 = False
-    cur.execute(
-        'SELECT DISTINCT img_set_date FROM img WHERE img_set_date<%s ORDER BY img_set_date DESC', (date,))
-    dates1 = cur.fetchmany(size=10)
-    if cur.fetchone() is not None:
-        flag1 = True
-    cur.execute(
-        'SELECT DISTINCT img_set_date FROM img WHERE img_set_date<%s ORDER BY img_set_date DESC', (date,))
-    dates2 = cur.fetchmany(size=10)
-    if cur.fetchone() is not None:
-        flag2 = True
-    if len(dates1) > len(dates2):
-        dates = dates1
-        dates.sort(reverse=True)
-    else:
-        dates = dates2
-    first_date = dates[0][0].strftime('%Y-%m-%d')
-    last_date = dates[len(dates) - 1][0].strftime('%Y-%m-%d')
-    dates = {date[0].strftime('%Y-%m-%d'): {'callback_data': 'selected_date ' +
-                                            date[0].strftime('%Y-%m-%d')} for date in dates}
-    if flag2:
-        dates['上一页'] = {'callback_data': 'prev ' + first_date}
-    if flag1:
-        dates['下一页'] = {'callback_data': 'next ' + last_date}
-    reply_mk = telebot.util.quick_markup(dates, row_width=2)
-    await bot.edit_message_text('请选择日期：', chat_id=call.message.chat.id,
-                                message_id=call.message.id, reply_markup=reply_mk)
-
-
-@bot.callback_query_handler(func=lambda call: 'next ' in call.data)
-async def next_page(call):
-    date = call.data.replace('next ', '')
-    cur.execute(
-        'SELECT DISTINCT img_set_date FROM img WHERE img_set_date<%s ORDER BY img_set_date DESC', (date,))
-    dates = cur.fetchmany(size=10)
-    last_date = dates[len(dates) - 1][0].strftime('%Y-%m-%d')
-    first_date = dates[0][0].strftime('%Y-%m-%d')
-    dates = {date[0].strftime('%Y-%m-%d'): {'callback_data': 'selected_date ' +
-                                            date[0].strftime('%Y-%m-%d')} for date in dates}
-    dates['上一页'] = {'callback_data': 'prev ' + first_date}
-    if cur.fetchone() is not None:
-        dates['下一页'] = {'callback_data': 'next ' + last_date}
-    reply_mk = telebot.util.quick_markup(dates, row_width=2)
-    await bot.edit_message_text('请选择日期：', chat_id=call.message.chat.id,
-                                message_id=call.message.id, reply_markup=reply_mk)
-
-
-@bot.callback_query_handler(func=lambda call: 'prev ' in call.data)
-async def prev_page(call):
-    date = call.data.replace('prev ', '')
-    cur.execute(
-        'SELECT DISTINCT img_set_date FROM img WHERE img_set_date>%s ORDER BY img_set_date', (date,))
-    dates = cur.fetchmany(size=10)
-    dates.sort(reverse=True)
-    last_date = dates[len(dates) - 1][0].strftime('%Y-%m-%d')
-    first_date = dates[0][0].strftime('%Y-%m-%d')
-    dates = {date[0].strftime('%Y-%m-%d'): {'callback_data': 'selected_date ' +
-                                            date[0].strftime('%Y-%m-%d')} for date in dates}
-    if cur.fetchone() is not None:
-        dates['上一页'] = {'callback_data': 'prev ' + first_date}
-    dates['下一页'] = {'callback_data': 'next ' + last_date}
-    reply_mk = telebot.util.quick_markup(dates, row_width=2)
-    await bot.edit_message_text('请选择日期：', chat_id=call.message.chat.id,
-                                message_id=call.message.id, reply_markup=reply_mk)
-
-
-@bot.callback_query_handler(func=lambda call: 'preview ' in call.data)
-async def send_setu_preview(call):
-    date = call.data.replace('preview ', '')
-    await _send_setu_preview(call.message.chat.id, date)
-
-
-@bot.message_handler(commands=['search'])
-async def search_setu(message):
-    search_waitlist.append(message.chat.id)
-    await bot.reply_to(message, '请发送关键词：')
-
-
-@bot.message_handler(func=lambda message: message.chat.id in search_waitlist)
-async def respond_to_search(message):
-    if (re.search('[0-9]+', message.text) is not None) and (re.search('[0-9]+', message.text).group() == message.text):
-        sql = 'SELECT DISTINCT img_set_name, img_set_index FROM img WHERE img_set_index=%s'
-        cur.execute(sql, (message.text,))
-        img_set = cur.fetchone()
-        if img_set is None:
-            await bot.reply_to(message, '未查询到结果')
-        else:
-            # cur.execute('SELECT img_set_telegraph FROM img_set WHERE img_set_index=%s', (img_set[1],))
-            # img_telegraph = cur.fetchone()
-            # if img_telegraph is not None:
-            #     text = '查询结果：\n<a href="{}">{}</a>'.format(img_telegraph[0], img_set[0])
-            # else:
-            #     text = '查询结果：\n' + img_set[0]
-            text = '查询结果：\n<a href="{}">{}</a>'.format(
-                mino_conf.mino_api + str(img_set[1]), img_set[0])
-            # reply_mk = {'发送':{'callback_data':'selected_setu ' + str(img_set[1])}}
-            # reply_mk = telebot.util.quick_markup(reply_mk)
-            await bot.reply_to(message, text, parse_mode='HTML')
-            search_waitlist.remove(message.chat.id)
-    else:
-        keywords = message.text.lower().split()
-        if keywords:
-            sql = 'SELECT DISTINCT img_set_name, img_set_index FROM img WHERE'
-            flag = True
-            for keyword in keywords:
-                if flag:
-                    sql += " lower(img_set_name) ~ %s"
-                    flag = False
-                else:
-                    sql += " AND lower(img_set_name) ~ %s"
-            sql += " ORDER BY img_set_index"
-            cur.execute(sql, tuple(keywords))
-            img_sets = cur.fetchmany(20)
-            if not img_sets:
-                await bot.reply_to(message, '未查询到结果')
-            else:
-                text = '查询结果：\n'
-                i = 0
-                test = cur.fetchone()
-                for img_set in img_sets:
-                    # cur.execute('SELECT img_set_telegraph FROM img_set WHERE img_set_index=%s', (img_set[1],))
-                    # img_telegraph = cur.fetchone()
-                    # if img_telegraph is not None:
-                    #     text += str(i) + '. <a href="{}">{}</a>         <code>{}</code>\n'.format('https://telegra.ph/' + img_telegraph[0], img_set[0], img_set[1])
-                    # else:
-                    #     text += str(i) + '. {}      <code>{}</code>\n'.format(img_set[0], img_set[1])
-                    text += str(i) + '. <a href="{}">{}</a>         <code>{}</code>\n'.format(
-                        mino_conf.mino_api + str(img_set[1]), img_set[0], img_set[1])
-                    i += 1
-                reply_mk = {}
-                if test is not None:
-                    reply_mk['下一页'] = {'callback_data': 'next_search_page ' +
-                                       str(i) + ' ' + str(img_sets[-1][1]) + ' ' + message.text}
-                reply_mk = telebot.util.quick_markup(reply_mk)
-                await bot.reply_to(message, text, reply_markup=reply_mk,
-                                   parse_mode='HTML')
-        search_waitlist.remove(message.chat.id)
-
-
-@bot.callback_query_handler(func=lambda call: 'next_search_page ' in call.data)
-async def next_search_page(call):
-    keywords = call.data.replace('next_search_page ', '').split()
-    index = keywords[0]
-    max_img_set_index = keywords[1]
-    keywords.pop(0)
-    keywords.pop(0)
-    if keywords:
-        sql = 'SELECT DISTINCT img_set_name, img_set_index FROM img WHERE'
-        flag = True
-        for keyword in keywords:
-            if flag:
-                sql += " lower(img_set_name) ~ %s"
-                flag = False
-            else:
-                sql += " AND lower(img_set_name) ~ %s"
-        sql += " AND img_set_index>{}".format(max_img_set_index)
-        sql += " ORDER BY img_set_index"
-        cur.execute(sql, tuple(keywords))
-        img_sets = cur.fetchmany(20)
-        text = '查询结果：\n'
-        i = int(index)
-        test = cur.fetchone()
-        for img_set in img_sets:
-            # cur.execute('SELECT img_set_telegraph FROM img_set WHERE img_set_index=%s', (img_set[1],))
-            # img_telegraph = cur.fetchone()
-            # if img_telegraph is not None:
-            #     text += str(i) + '. <a href="{}">{}</a>         <code>{}</code>\n'.format('https://telegra.ph/' + img_telegraph[0], img_set[0], img_set[1])
-            # else:
-            #     text += str(i) + '. {}      <code>{}</code>\n'.format(img_set[0], img_set[1])
-            text += str(i) + '. <a href="{}">{}</a>         <code>{}</code>\n'.format(
-                mino_conf.mino_api + str(img_set[1]), img_set[0], img_set[1])
-            i += 1
-        reply_mk = {}
-        keywords = ' '.join([keyword[1:-1] for keyword in keywords])
-        reply_mk['上一页'] = {'callback_data': 'prev_search_page ' +
-                           str(int(index) - 20) + ' ' + str(img_sets[0][1]) + ' ' + keywords}
-        if test is not None:
-            reply_mk['下一页'] = {'callback_data': 'next_search_page ' +
-                               str(i) + ' ' + str(img_sets[-1][1]) + ' ' + keywords}
-        reply_mk = telebot.util.quick_markup(reply_mk)
-        await bot.edit_message_text(text, call.message.chat.id,
-                                    call.message.id, reply_markup=reply_mk, parse_mode='HTML')
-
-
-@bot.callback_query_handler(func=lambda call: 'prev_search_page ' in call.data)
-async def prev_search_page(call):
-    keywords = call.data.replace('prev_search_page ', '').split()
-    index = keywords[0]
-    min_img_set_index = keywords[1]
-    keywords.pop(0)
-    keywords.pop(0)
-    if keywords:
-        sql = 'SELECT DISTINCT img_set_name, img_set_index FROM img WHERE'
-        flag = True
-        for keyword in keywords:
-            if flag:
-                sql += " lower(img_set_name) ~ %s"
-                flag = False
-            else:
-                sql += " AND lower(img_set_name) ~ %s"
-        sql += " AND img_set_index<{}".format(min_img_set_index)
-        sql += " ORDER BY img_set_index DESC"
-        cur.execute(sql, tuple(keywords))
-        img_sets = cur.fetchmany(20)
-        img_sets.sort(key=lambda e: e[1])
-        text = '查询结果：\n'
-        test = cur.fetchone()
-        i = int(index)
-        for img_set in img_sets:
-            # cur.execute('SELECT img_set_telegraph FROM img_set WHERE img_set_index=%s', (img_set[1],))
-            # img_telegraph = cur.fetchone()
-            # if img_telegraph is not None:
-            #     text += str(i) + '. <a href="{}">{}</a>         <code>{}</code>\n'.format('https://telegra.ph/' + img_telegraph[0], img_set[0], img_set[1])
-            # else:
-            #     text += str(i) + '. {}      <code>{}</code>\n'.format(img_set[0], img_set[1])
-            text += str(i) + '. <a href="{}">{}</a>         <code>{}</code>\n'.format(
-                mino_conf.mino_api + str(img_set[1]), img_set[0], img_set[1])
-            i += 1
-        reply_mk = {}
-        keywords = ' '.join([keyword[1:-1] for keyword in keywords])
-        if test is not None:
-            reply_mk['上一页'] = {'callback_data': 'prev_search_page ' +
-                               str(int(index) - 20) + ' ' + str(img_sets[-1][1]) + ' ' + keywords}
-        reply_mk['下一页'] = {'callback_data': 'next_search_page ' +
-                           str(i) + ' ' + str(img_sets[-1][1]) + ' ' + keywords}
-        reply_mk = telebot.util.quick_markup(reply_mk)
-        await bot.edit_message_text(text, call.message.chat.id,
-                                    call.message.id, reply_markup=reply_mk, parse_mode='HTML')
-
-
-@bot.callback_query_handler(func=lambda call: 'selected_setu ' in call.data)
-async def send_setu(call):
-    await bot.send_message(call.message.chat.id, '大家好啊，我是米诺，今天来点大家想看的东西啊~')
-    index = call.data.replace('selected_setu ', '')
-    cur.execute('SELECT img_set_name FROM img where img_set_index=%s', (index,))
-    title = cur.fetchone()
-    if title:
-        title = title[0]
-        await bot.send_message(call.message.chat.id, index + '. <a href="{}">{}</a>'.format(
-            mino_conf.mino_api + index, title), parse_mode='HTML')
-    else:
-        await bot.send_message(call.message.chat.id, 'Image set not found')
-    # if TELEGRAPH_FLAG:
-    #     cur.execute('SELECT img_set_name, img_set_telegraph FROM img_set WHERE img_set_index=%s', (index,))
-    #     img_set = cur.fetchone()
-    #     if img_set is None:
-    #         cur.execute('SELECT img_set_name, img_url FROM img WHERE img_set_index=%s ORDER BY img_index', (index,))
-    #         imgs = cur.fetchall()
-    #         title = imgs[0][0]
-    #         imgs = [ {'tag':'img', 'attrs':{'src': img[1]}} for img in imgs ]
-    #         page = telegraph.create_page('Title', ['content'])
-    #         telegraph.edit_page(page['path'], title, content=imgs)
-    #         cur.execute('INSERT INTO img_set VALUES(%s,%s,%s) ON CONFLICT DO NOTHING', (index, title, page['path']))
-    #         conn.commit()
-    #         bot.send_message(call.message.chat.id, index + '. <a href="{}">{}</a>'.format('https://telegra.ph/' + page['path'], title), parse_mode='HTML')
-    #     else:
-    #         bot.send_message(call.message.chat.id, index + '. <a href="{}">{}</a>'.format('https://telegra.ph/' + img_set[1], img_set[0]), parse_mode='HTML')
-    # else:
-    #     cur.execute('SELECT img_url FROM img WHERE img_set_index=%s ORDER BY img_index', (index,))
-    #     imgs = cur.fetchall()
-    #     imgs = [ img[0] for img in imgs ]
-    #     i = 0
-    #     while i < len(imgs):
-    #         arr = []
-    #         for j in range(10):
-    #             if i + j < len(imgs):
-    #                 arr.append(imgs[i + j])
-    #             else:
-    #                 break
-    #         i += 10
-    #         print('sending media group to', call.message.chat.id, arr)
-    #         medias = [ telebot.types.InputMediaPhoto(media + TRAILING_PARAM) for media in arr ]
-    #         try:
-    #             bot.send_media_group(chat_id = call.message.chat.id, media = medias)
-    #         except telebot.apihelper.ApiTelegramException as e:
-    #             print(e.description)
-    #             if e.error_code == 429:
-    #                 from time import sleep
-    #                 sleep(e.result_json['parameters']['retry_after'])
-
-        # index_to_change = None
-        # while True:
-        #     try:
-        #         if index_to_change is not None:
-        #             from random import randint
-        #             r = randint(0, 100)
-        #             medias[index_to_change] = telebot.types.InputMediaPhoto(arr[index_to_change] + f'?{r}')
-        #             index_to_change = None
-        #         bot.send_media_group(chat_id = call.message.chat.id, media = medias)
-        #     except telebot.apihelper.ApiTelegramException as e:
-        #         print(e.description)
-        #         if e.error_code == 429:
-        #             from time import sleep
-        #             sleep(e.result_json['parameters']['retry_after'])
-        #         elif e.error_code == 400:
-        #             index_to_change = int(re.search('#[0-9]+', e.description).group()[1:]) - 1
-        #         else:
-        #             break
-        #     else:
-        #         break
-
-
-@bot.message_handler(commands=['setcalendar'])
-async def set_calendar_repond(message):
-    mino_conf.awaiting_sending_calendar = True
-    await bot.reply_to(message, 'Please send the new calendar')
-
-
-@bot.message_handler(content_types=['photo'])
-async def repond_to_photo(message):
-    if mino_conf.awaiting_sending_calendar:
-        mino_conf.calendar_id = message.photo[3].file_id
-        await bot.reply_to(message, 'Calendar set successfully!')
-        mino_conf.awaiting_sending_calendar = False
-
-
-@bot.message_handler(func=lambda message: message.text == '米诺米诺米诺', content_types=['text'])
-async def bobo(message):
-    await bot.reply_to(message, '思诺拳，思如泉涌！念诺剑，念念不忘！浩诺掌，生生世世！米诺！米诺！米诺！')
-
-
-@bot.message_handler(func=lambda message: message.text == '柚恩柚恩柚恩', content_types=['text'])
-async def bobo(message):
-    await bot.reply_to(message, '''有一些 心里话 想要说给你！
-柚恩酱 就是你 最可爱的你！
-喜欢你 喜欢你 就是喜欢你！
-翻过山 越过海 你就是唯一！
-有了你 生命里 全都是奇迹！
-失去你 不再有 燃烧的意义！
-让我们 再继续 绽放吧生命！
-全世界 所有人 我最喜欢你！
-我・最・喜・欢・你！！''')
-
-
-@bot.message_handler(func=lambda message: message.text == '啵啵', content_types=['text'])
-async def bobo(message):
-    await bot.reply_to(message, '啵你妈臭屄')
-
-
-# @bot.message_handler(func=lambda message: message.text == '?' or message.text == '？', content_types=['text'])
-# async def curse_single_question_mark(message):
-#     for _ in range(int(random.random()*5) + 1):
-#         res = requests.request('GET', 'https://fun.886.be/api.php?level=max')
-#         telebot.util.antiflood(
-#             bot.reply_to, message=message, text=res.content.decode())
-
-
-@bot.message_handler(func=lambda message: message.text == '日程表', content_types=['text'])
-async def send_calendar(message):
-    await bot.send_photo(chat_id=message.chat.id, photo=mino_conf.calendar_id,
-                         reply_to_message_id=message.message_id)
-
-
 @bot.edited_message_handler(content_types=['text'])
 async def edit_log(message):
     if not check_if_initialied(message):
@@ -918,16 +290,8 @@ async def edit_log(message):
         }}
     )
 
-    # filename = directory + 'chatLog/' + str(message.chat.id) + '/data.json'
-    # with FileLock(filename + '.lock'):
-    #     df = pd.read_json(filename)
-    #     df.loc[df['message_id'] == message.message_id, 'content'] = message.text
-    #     df.to_json(filename, indent = 1, date_unit = 's')
-
-
 def check_douyin_url(message):
     return 'v.douyin.com' in message.text
-
 
 def parse_entity(text: str, offset: int, length: int) -> str:
     count = 0
@@ -981,11 +345,6 @@ async def analyze_douyin_url(message):
                     await bot.send_media_group(chat_id=message.chat.id,
                                                media=medias, reply_to_message_id=message.message_id)
 
-# @bot.message_handler(func=check_if_url, content_types=['text'])
-# def deal_with_url(message):
-#     pass
-
-
 @bot.message_handler(func=lambda x: "xhslink.com" in x.text, content_types=['text'])
 async def analyze_xhs_url(message):
     for e in message.entities:
@@ -1021,11 +380,9 @@ def has_url(message):
         r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+')
     return pattern.search(message.text) is not None
 
-
 @bot.message_handler(func=has_url, content_types=['text'])
 async def filter_url(message):
     pass
-
 
 @bot.message_handler(content_types=['text'])
 async def write_to_log(message):
@@ -1041,17 +398,5 @@ async def write_to_log(message):
     }
     collection.insert_one(doc)
     logger.info('writing to log: %s', doc)
-    update_speak_time(message)
-    # filename = directory + 'chatLog/' + str(message.chat.id) + '/data.json'
-    # print('reading: ', filename)
-    # with FileLock(filename + '.lock'):
-    #     df = pd.read_json(filename)
-    #     df.loc[len(df.index)] = [message.message_id, message.from_user.id,
-    #                              message.from_user.username, message.date, message.text]
-    #     print('writing to log: ', message.message_id, message.from_user.id,
-    #           message.from_user.username, message.date, message.text)
-    #     update_speak_time(message)
-    #     df.to_json(filename, indent=1, date_unit='s')
-
 
 asyncio.run(bot.infinity_polling())
