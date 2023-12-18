@@ -9,6 +9,7 @@ import shutil
 import os
 import re
 import aiohttp
+import http.cookies
 
 tmp_dir = '/tmp/mino/'
 
@@ -46,14 +47,18 @@ async def crawl_douyin(session: aiohttp.ClientSession, url:str) -> str | None | 
         #     print('no script#render_data')
         #     print(page.content())
         # if locator.count() != 0:
-    lua_source = '''function main(splash, args)
-  user_agent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_7_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/27.0.1453.93 Safari/537.36'
-  splash:set_user_agent(user_agent)
-  assert(splash:go(args.url))
-  assert(splash:wait(4))
-  return splash:html()
-end'''
-    async with session.get(f"http://127.0.0.1:8050/execute?url={url}&lua_source={quote(lua_source)}") as response:
+    # lua_source = '''function main(splash, args)
+  # user_agent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_7_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/27.0.1453.93 Safari/537.36'
+  # splash:set_user_agent(user_agent)
+  # assert(splash:go(args.url))
+  # assert(splash:wait(4))
+  # return splash:html()
+# end'''
+    # async with session.get(f"http://127.0.0.1:8050/execute?url={url}&lua_source={quote(lua_source)}") as response:
+        # data = await response.text()
+    cookie_str = 'douyin.com; device_web_cpu_core=6; device_web_memory_size=8; architecture=amd64; webcast_local_quality=null; ttwid=1%7Cezqq-bEoESmHac80M9BDPPnHG_sPZh6mqIFdel6oTb8%7C1683607499%7Ca91ab1164f896891a61fe44ba735c0511220f487efd3f7685e6d52a4d7d75c36; my_rd=1; xgplayer_user_id=680181495828; bd_ticket_guard_client_data=eyJiZC10aWNrZXQtZ3VhcmQtdmVyc2lvbiI6MiwiYmQtdGlja2V0LWd1YXJkLWl0ZXJhdGlvbi12ZXJzaW9uIjoxLCJiZC10aWNrZXQtZ3VhcmQtcmVlLXB1YmxpYy1rZXkiOiJCRHZsVHV5YmZaSXo2Zkc3MVFrK0pVVnJ4Wi9oNFI3VjlHOERxL09HdlAyaTI3Q3JOcWlhYXlUemdDdStHVEVDalk3UGthQmpjRkxLaDRTVU1tZ1IrMG89IiwiYmQtdGlja2V0LWd1YXJkLXdlYi12ZXJzaW9uIjoxfQ==; __ac_nonce=0650af7ef003731e0794e; __ac_signature=_02B4Z6wo00f013YvYIgAAIDCZnGFsWGQhBt2D2QAALiMF2iyqZ6MDGFg2vCOdPiOEvOLJ6egSStJWWk18FJ8WB2-H1bE4hfw9t4F938tm9dlL.A1UXH0yQv4UJeF2naCi5tL.ock5zDtFE4fa5; strategyABtestKey=%221695217647.657%22; FORCE_LOGIN=%7B%22videoConsumedRemainSeconds%22%3A180%7D; s_v_web_id=verify_lmrstgk5_bzI4FSZv_QCX6_4S1x_8fne_rW85zpMvIOso; passport_csrf_token=9eb5b1d212d2d18529e89566dcb83b2d; passport_csrf_token_default=9eb5b1d212d2d18529e89566dcb83b2d; stream_recommend_feed_params=%22%7B%5C%22cookie_enabled%5C%22%3Atrue%2C%5C%22screen_width%5C%22%3A1536%2C%5C%22screen_height%5C%22%3A864%2C%5C%22browser_online%5C%22%3Atrue%2C%5C%22cpu_core_num%5C%22%3A6%2C%5C%22device_memory%5C%22%3A8%2C%5C%22downlink%5C%22%3A10%2C%5C%22effective_type%5C%22%3A%5C%224g%5C%22%2C%5C%22round_trip_time%5C%22%3A150%7D%22; download_guide=%221%2F20230920%2F0%22; home_can_add_dy_2_desktop=%221%22; msToken=TU6gDxOrLQcAfltMZIo-UMK1Emq0rEoXhLWKDiQ_qtCWqwkRURMFgi1iVWSZDJ3mgwDXxYGOoUjt8FkcI-ySObVLrnJYmQFWcl4ndmvlUDAJTzDsVJdMRWV8XbRGN-w=; msToken=V0o3LYqxs1R3SB69DKaU56t9vcHTLpqli2JFAarH8suxwNa805UQAJKi-OGOEaJfhfD_ZLntLahPadBXfv30c16F4wOn_o62biGb6MQ1CO73J__g7vDHgBCcj3QGtxM=; tt_scid=DyiW4-hghPwMhK5sb7I-etaXMwKh.5JwlRePeV-OZC7qMszVIJJmOthejgGoPf.w2caf; volume_info=%7B%22isUserMute%22%3Atrue%2C%22isMute%22%3Atrue%2C%22volume%22%3A0.982%7D; IsDouyinActive=false'
+    cookies = http.cookies.SimpleCookie(cookie_str)
+    async with session.get(url, cookies=cookies) as response:
         data = await response.text()
     data = BeautifulSoup(data, 'html.parser')
     data = data.select('script#RENDER_DATA')[0].string

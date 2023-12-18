@@ -8,11 +8,14 @@ class MinoConfig:
     mino_api: str
     setu_db_name: str
     setu_db_user: str
+    setu_db_password: str
     chatlog_db_user: str
     chatlog_db_password: str
     calendar_id: str
     awaiting_sending_calendar: int
     chatgpt_api_endpoint: str
+    chatgpt_api_key: str
+    gemini_api_key: str
     
     @staticmethod
     def new(config_path: str) -> 'MinoConfig':

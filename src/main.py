@@ -13,7 +13,7 @@ import json
 import psycopg2
 import re
 from filelock import FileLock
-from telegraph import Telegraph
+# from telegraph import Telegraph
 import requests
 import pymongo
 import string
@@ -21,7 +21,6 @@ from crawl_dyxhs import crawl_douyin, crawl_xhs
 from sqlalchemy import create_engine, String, Integer, select, insert, desc
 from sqlalchemy.orm import DeclarativeBase, mapped_column, Mapped
 # import openai
-from gpt4free import phind, ora
 from mino_config import MinoConfig
 import sys
 import aiohttp
@@ -46,7 +45,7 @@ search_waitlist = []
 # openai.api_key = mino_conf.openai_api_key
 
 conn = psycopg2.connect(
-    f'dbname={mino_conf.setu_db_name} user={mino_conf.setu_db_user}')
+    f'dbname={mino_conf.setu_db_name} user={mino_conf.setu_db_user} password={mino_conf.setu_db_password}')
 cur = conn.cursor()
 
 gpt_engine = create_engine(f'sqlite:///gpt_log.db')
@@ -55,19 +54,13 @@ conn_str = f'mongodb+srv://{mino_conf.chatlog_db_user}:{mino_conf.chatlog_db_pas
 client = pymongo.MongoClient(conn_str, serverSelectionTimeoutMS=5000)
 db = client['ChatLog']
 
-gpt4_chatbot_ids = ['b8b12eaa-5d47-44d3-92a6-4d706f2bcacf', 'fbe53266-673c-4b70-9d2d-d247785ccd91', 'bd5781cf-727a-45e9-80fd-a3cfce1350c6', '993a0102-d397-47f6-98c3-2587f2c9ec3a', 'ae5c524e-d025-478b-ad46-8843a5745261', 'cc510743-e4ab-485e-9191-76960ecb6040', 'a5cd2481-8e24-4938-aa25-8e26d6233390', '6bca5930-2aa1-4bf4-96a7-bea4d32dcdac', '884a5f2b-47a2-47a5-9e0f-851bbe76b57c', 'd5f3c491-0e74-4ef7-bdca-b7d27c59e6b3', 'd72e83f6-ef4e-4702-844f-cf4bd432eef7',
-                    '6e80b170-11ed-4f1a-b992-fd04d7a9e78c', '8ef52d68-1b01-466f-bfbf-f25c13ff4a72', 'd0674e11-f22e-406b-98bc-c1ba8564f749', 'a051381d-6530-463f-be68-020afddf6a8f', '99c0afa1-9e32-4566-8909-f4ef9ac06226', '1be65282-9c59-4a96-99f8-d225059d9001', 'dba16bd8-5785-4248-a8e9-b5d1ecbfdd60', '1731450d-3226-42d0-b41c-4129fe009524', '8e74635d-000e-4819-ab2c-4e986b7a0f48', 'afe7ed01-c1ac-4129-9c71-2ca7f3800b30', 'e374c37a-8c44-4f0e-9e9f-1ad4609f24f5']
-ora_model = ora.CompletionModel.load(gpt4_chatbot_ids[0], 'gpt-4')
-
 def exit_handler(signum, frame):
     cur.close()
     conn.close()
     mino_conf.dump()
     sys.exit(0)
 
-
 signal.signal(signal.SIGTERM, exit_handler)
-
 
 def check_if_url(message):
     if (message.entities == None):
@@ -307,54 +300,70 @@ class ChatLog(Base):
         return "<User(user_id='%s', role='%s', content='%s')>" % (
             self.user_id, self.role, self.content)
 
-
-@bot.message_handler(commands=['ask'])
-async def ask_gpt(message):
+async def ask_gpt(message, model):
     question = telebot.util.extract_arguments(message.text)
 
     logger.info('%s asking question: %s', message.from_user.id, question)
 
-    ############# API endpoint version ############
-
-    # chatgpt_api_endpoint = 'https://free.churchless.tech/v1/chat/completions'
-
     if not question:
-        bot.reply_to(message, 'Do not ask empty questions.')
+        await bot.reply_to(message, 'Do not ask empty questions.')
         return
     
-    user_question = {}
-    with gpt_engine.begin() as conn:
-        log_table = ChatLog.__table__
-        stmt = select(log_table.c.role, log_table.c.content).where(log_table.c.user_id == message.from_user.id).order_by(log_table.c.id.desc())
-        logs = conn.execute(stmt).fetchall()
-    if logs != []:
-        user_question['role'] = 'user'
-        user_question['content'] = question
-        messages = [user_question]
-        length = len(question)
-        for log in logs:
-            if (length + len(log[1])) < 2000:
-                messages.append({'role':log[0], 'content':log[1]})
-                length += len(log[1])
-            else:
-                break
-        messages.reverse()
+    messages = []
+    
+    if model == 'gemini':
+        with gpt_engine.begin() as conn:
+            log_table = ChatLog.__table__
+            stmt = select(log_table.c.role, log_table.c.content).where(log_table.c.user_id == message.from_user.id).order_by(log_table.c.id.desc())
+            logs = conn.execute(stmt).fetchall()
+            messages = [{'role':'USER', 'parts':[{'text':question}]}]
+            length = len(question)
+            for log in logs:
+                if (length + len(log[1])) < 2000:
+                    messages.append({'role':'USER', 'parts':[{'text':log[1]}]})
+                    length += len(log[1])
+                else:
+                    break
+            messages.reverse()
     else:
-        user_question['role'] = 'system'
-        user_question['content'] = question
-        messages = [user_question]
+        with gpt_engine.begin() as conn:
+            log_table = ChatLog.__table__
+            stmt = select(log_table.c.role, log_table.c.content).where(log_table.c.user_id == message.from_user.id).order_by(log_table.c.id.desc())
+            logs = conn.execute(stmt).fetchall()
+            if logs != []:
+                messages = [{'role':'user', 'content':question}]
+                length = len(question)
+                for log in logs:
+                    if (length + len(log[1])) < 2000:
+                        messages.append({'role':log[0], 'content':log[1]})
+                        length += len(log[1])
+                    else:
+                        break
+                messages.reverse()
+            else:
+                messages = [{'role':'system', 'content':question}]    
     
     session = await async_telebot.asyncio_helper.session_manager.get_session()
-    json_body = {'model': 'gpt-3.5-turbo', 'messages': messages }
+    
+    json_body = {}
+    if model == 'gemini':
+        json_body['contents'] = messages
+        headers = {'x-goog-api-key': mino_conf.gemini_api_key}
+        endpoint = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent'
+    else:
+        json_body['model'] = model
+        json_body['messages'] = messages
+        headers = {'Authorization': f'Bearer {mino_conf.chatgpt_api_key}'}
+        endpoint = mino_conf.chatgpt_api_endpoint
     
     logger.debug('ChatGPT request json body: %s', json_body)
 
     try:
-        async with session.post(mino_conf.chatgpt_api_endpoint, json=json_body) as response:
+        async with session.post(endpoint, json=json_body, headers=headers) as response:
             if response.status == 200:
                 result = await response.json()
             else:
-                logger.info('Failed to receiver answer: %s', response.status)
+                logger.info('Failed to receiver answer: %s %s', response.status, await response.text())
                 await bot.reply_to(message, text='Error ocurred, please retry.')
                 return
     except aiohttp.ClientConnectorError as e:
@@ -362,8 +371,12 @@ async def ask_gpt(message):
         await bot.reply_to(message, text='Error ocurred, please retry.')
         return
 
-    response_log = result['choices'][0]['message']
-    result = response_log['content']
+    if model == 'gemini':
+        response_log = result['candidates'][0]['contents']
+        result = response_log['parts'][0]['text']
+    else:
+        response_log = result['choices'][0]['message']
+        result = response_log['content']
 
     logger.info('response to question: %s', result)
 
@@ -380,52 +393,17 @@ async def ask_gpt(message):
     except:
         await bot.reply_to(message, text=result)
 
-    ############### ChatGPT version ###############
-    # if not question:
-    #     bot.reply_to(message, 'Do not ask empty questions.')
-    #     return
-    # user_question = {}
-    # with gpt_engine.begin() as conn:
-    #     log_table = ChatLog.__table__
-    #     stmt = select(log_table.c.role, log_table.c.content).where(log_table.c.user_id == message.from_user.id).order_by(log_table.c.id.desc())
-    #     logs = conn.execute(stmt).fetchall()
-    # if logs != []:
-    #     messages = []
-    #     length = 0
-    #     for log in logs:
-    #         if (length + len(log[1])) < 2000:
-    #             messages.append({'role':log[0], 'content':log[1]})
-    #             length += len(log[1])
-    #         else:
-    #             break
-    #     messages.reverse()
-    #     user_question['role'] = 'user'
-    #     user_question['content'] = question
-    #     messages.append(user_question)
-    # else:
-    #     user_question['role'] = 'system'
-    #     user_question['content'] = question
-    #     messages = [user_question]
-    # logger.info('%s asking %s', message.from_user.id, user_question)
-    # try:
-    #     response = openai.ChatCompletion.create(model='gpt-3.5-turbo', messages=messages)
-    #     logger.info('response to question: %s', response)
-    # except:
-    #     bot.reply_to(message, text='Error ocurred, please retry.')
-    #     return
-    # response_log = response['choices'][0]['message']
-    # response_log['user_id'] = message.from_user.id
-    # user_question['user_id'] = message.from_user.id
-    # with gpt_engine.begin() as conn:
-    #     log_table = ChatLog.__table__
-    #     conn.execute(insert(log_table), user_question)
-    #     conn.execute(insert(log_table), response_log)
-    #     conn.commit()
-    # try:
-    #     bot.reply_to(message, text=response_log['content'], parse_mode='Markdown')
-    # except:
-    #     bot.reply_to(message, text=response_log['content'])
+@bot.message_handler(commands=['ask'])
+async def ask_gpt3dot5(message):
+    await ask_gpt(message, 'gpt-3.5-turbo')
 
+@bot.message_handler(commands=['ask4'])
+async def ask_gpt4(message):
+    await ask_gpt(message, 'gpt-4')
+
+@bot.message_handler(commands=['askg'])
+async def ask_gemini(message):
+    await ask_gpt(message, 'gemini')
 
 @bot.message_handler(commands=['img'])
 async def gen_img(message):
