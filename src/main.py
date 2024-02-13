@@ -197,8 +197,11 @@ async def ask_gpt(message, model):
         return
 
     if model == 'gemini':
-        response_log = result['candidates'][0]['contents']
-        result = response_log['parts'][0]['text']
+        try:
+            response_log = result['candidates'][0]['content']
+            result = response_log['parts'][0]['text']
+        except KeyError as e:
+            logger.error('%s response: %s', e, result)
     else:
         response_log = result['choices'][0]['message']
         result = response_log['content']
