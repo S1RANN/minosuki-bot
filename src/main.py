@@ -40,9 +40,9 @@ search_waitlist = []
 
 # openai.api_key = mino_conf.openai_api_key
 
-conn = psycopg2.connect(
-    f'dbname={mino_conf.setu_db_name} user={mino_conf.setu_db_user} password={mino_conf.setu_db_password}')
-cur = conn.cursor()
+# conn = psycopg2.connect(
+    # f'dbname={mino_conf.setu_db_name} user={mino_conf.setu_db_user} password={mino_conf.setu_db_password}')
+# cur = conn.cursor()
 
 gpt_engine = create_engine(f'sqlite:///gpt_log.db')
 
