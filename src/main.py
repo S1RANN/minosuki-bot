@@ -1,22 +1,20 @@
-import os
 import logging
 import logging.handlers
 import asyncio
-import random
 import telebot.util
 from telebot import async_telebot
-import pandas as pd
 from word_cloud import generate_word_cloud
 import signal
 from datetime import datetime, timedelta
 import json
 import psycopg2
 import re
-from filelock import FileLock
 import pymongo
-import string
-from crawl_dyxhs import crawl_douyin, crawl_xhs
-from sqlalchemy import create_engine, String, Integer, select, insert, desc
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad
+import base64
+import hashlib
+from sqlalchemy import create_engine, String, Integer, select, insert
 from sqlalchemy.orm import DeclarativeBase, mapped_column, Mapped
 # import openai
 from mino_config import MinoConfig
@@ -262,24 +260,17 @@ async def get_password(message):
     if message.chat.type != 'private':
         await bot.reply_to(message, '请私聊')
         return
-    password_dir = 'password.json'
-    with FileLock(password_dir + '.lock'):
-        with open(password_dir, 'r') as f:
-            passwords = json.load(f)
-        if str(message.from_user.id) in passwords:
-            password = passwords[str(message.from_user.id)]
-            await bot.reply_to(message, password)
-            logger.info('%s asking for password: %s',
-                        message.from_user.username, password)
-            return
-        src_chars = string.ascii_letters + string.digits
-        password = ''.join(random.choice(src_chars) for _ in range(24))
-        passwords[message.from_user.id] = password
-        with open(password_dir, 'w') as f:
-            json.dump(passwords, f)
-        await bot.reply_to(message, password)
-        logger.info('%s asking for password: %s',
-                    message.from_user.username, password)
+    user_info = {'id': message.from_user.id, 
+                 'firstName': message.from_user.first_name,
+                 'lastName': message.from_user.last_name,
+                 'username': message.from_user.username}
+    plain_text = json.dumps(user_info)
+    key = hashlib.sha256(mino_conf.telegram_api_key.encode()).digest()
+    cipher = AES.new(key, AES.MODE_CBC)
+    cipher_text = cipher.encrypt(pad(plain_text, AES.block_size))
+    iv = base64.b64encode(cipher.iv).decode('utf-8')
+    cipher_text = base64.b64encode(cipher_text).decode('utf-8')
+    await bot.reply_to(message, f'{cipher_text}.{iv}')
 
 @bot.edited_message_handler(content_types=['text'])
 async def edit_log(message):
@@ -292,10 +283,7 @@ async def edit_log(message):
             'content': message.text
         }}
     )
-
-def check_douyin_url(message):
-    return 'v.douyin.com' in message.text
-
+    
 def parse_entity(text: str, offset: int, length: int) -> str:
     count = 0
     _offset = 0
@@ -314,69 +302,6 @@ def parse_entity(text: str, offset: int, length: int) -> str:
             _length = i + 1
         i += 1
     return text[_offset:_length].decode()
-
-
-@bot.message_handler(func=check_douyin_url, content_types=['text'])
-async def analyze_douyin_url(message):
-    for e in message.entities:
-        if e.type == 'url':
-            url = parse_entity(message.text, e.offset, e.length)
-            if '图文' in message.text:
-                logger.info('crawling douyin pictures: %s', url)
-            else:
-                logger.info('crawling douyin video: %s', url)
-            session = await async_telebot.asyncio_helper.session_manager.get_session()
-            result = await crawl_douyin(session, url)
-            if isinstance(result, str):
-                with open(result, 'rb') as f:
-                    await bot.send_video(message.chat.id, f, reply_to_message_id=message.message_id)
-                    logger.info('sending douyin video: %s', result)
-            elif isinstance(result, list):
-                i = 0
-                while i < len(result):
-                    arr = []
-                    for j in range(10):
-                        if i + j < len(result):
-                            arr.append(result[i + j])
-                        else:
-                            break
-                    i += 10
-                    logger.info('sending media group to %s: %s',
-                                message.chat.id, arr)
-                    medias = [telebot.types.InputMediaPhoto(
-                        media) for media in arr]
-                    await bot.send_media_group(chat_id=message.chat.id,
-                                               media=medias, reply_to_message_id=message.message_id)
-
-@bot.message_handler(func=lambda x: "xhslink.com" in x.text, content_types=['text'])
-async def analyze_xhs_url(message):
-    for e in message.entities:
-        if e.type == 'url':
-            url = parse_entity(message.text, e.offset, e.length)
-            logger.info("crawling xhs video: %s", url)
-            result = crawl_xhs(url)
-            if isinstance(result, str):
-                with open(result, 'rb') as f:
-                    await bot.send_video(message.chat.id, f, reply_to_message_id=message.message_id)
-                    logger.info('sending douyin video: %s', result)
-                os.remove(result)
-            elif isinstance(result, list):
-                i = 0
-                while i < len(result):
-                    arr = []
-                    for j in range(10):
-                        if i + j < len(result):
-                            arr.append(result[i + j])
-                        else:
-                            break
-                    i += 10
-                    logger.info('sending media group to %s: %s',
-                                message.chat.id, arr)
-                    medias = [telebot.types.InputMediaPhoto(
-                        media) for media in arr]
-                    await bot.send_media_group(chat_id=message.chat.id,
-                                               media=medias, reply_to_message_id=message.message_id)
-
 
 def has_url(message):
     pattern = re.compile(
